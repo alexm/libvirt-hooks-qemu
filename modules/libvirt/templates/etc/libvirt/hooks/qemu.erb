@@ -1,0 +1,37 @@
+#!/bin/sh
+#
+# http://wiki.libvirt.org/page/Networking#Forwarding_Incoming_Connections
+#
+
+DEBUG="/etc/libvirt/hooks/qemu: $0 $*"
+logger "$DEBUG"
+echo "$DEBUG" 1>&2
+
+GUEST_NAME="${1}"
+VIRSH_CMD="${2}"
+PUBLIC_IP="<%= @ipaddress %>"
+
+redirect_host_port() {
+    HOST_PORT="${1}"
+    GUEST_IPADDR="${2}"
+    GUEST_PORT="${3}"
+
+    if [ "$VIRSH_CMD" = "stopped" -o "$VIRSH_CMD" = "reconnect" ]; then
+        iptables -t nat -D PREROUTING -d ${PUBLIC_IP} -p tcp --dport ${HOST_PORT} -j DNAT \
+                 --to ${GUEST_IPADDR}:${GUEST_PORT}
+        iptables -D FORWARD -d ${GUEST_IPADDR}/32 -p tcp -m state --state NEW \
+                 -m tcp --dport ${GUEST_PORT} -j ACCEPT
+    fi
+    if [ "$VIRSH_CMD" = "start" -o "$VIRSH_CMD" = "reconnect" ]; then
+        iptables -t nat -A PREROUTING -d ${PUBLIC_IP} -p tcp --dport ${HOST_PORT} -j DNAT \
+                 --to ${GUEST_IPADDR}:${GUEST_PORT}
+        iptables -I FORWARD -d ${GUEST_IPADDR}/32 -p tcp -m state --state NEW \
+                 -m tcp --dport ${GUEST_PORT} -j ACCEPT
+    fi
+}
+
+case "$GUEST_NAME" in
+    guest)
+        redirect_host_port 80 192.168.122.10 80
+        ;;
+esac
